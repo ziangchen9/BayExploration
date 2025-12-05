@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
 
 import torch
 from botorch.models import SingleTaskGP
@@ -14,8 +13,7 @@ class BaseGPModel(ABC):
 
     @abstractmethod
     def _fit(self, x: torch.Tensor, y: torch.Tensor):
-        """practical realization of fitting the Gaussian process model"""
-        pass
+        raise NotImplementedError
 
     def fit(self, x: torch.Tensor, y: torch.Tensor) -> SingleTaskGP:
         self.model = self._fit(x, y)

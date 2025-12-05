@@ -1,4 +1,4 @@
-"""定义优化结果的输出"""
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -23,7 +23,7 @@ class OptimizationRecord(BaseModel):
     duration: float = Field(description="优化过程持续时间")
 
     @model_validator(mode="after")
-    def calculate_duration(self) -> "OptimizationRecord":
+    def calculate_duration(self) -> OptimizationRecord:
         """Auto count the duration of the optimization process"""
         if self.created_at and self.end_at:
             self.duration = (self.end_at - self.created_at).total_seconds()

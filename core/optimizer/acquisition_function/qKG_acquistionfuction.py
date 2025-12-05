@@ -1,4 +1,5 @@
 from botorch.acquisition import qKnowledgeGradient
+
 from core.optimizer.acquisition_function.base_acquisition_function import (
     BaseAcquisitionFunction,
 )

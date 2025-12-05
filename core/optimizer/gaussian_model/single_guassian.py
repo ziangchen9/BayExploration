@@ -1,28 +1,18 @@
 from botorch import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from gpytorch import ExactMarginalLogLikelihood
-from gpytorch.kernels import MaternKernel, RBFKernel
-from gpytorch.means import ConstantMean, LinearMean
 from torch import Tensor
 
 from core.optimizer.gaussian_model.base_guassian import BaseGPModel
-from core.optimizer.gaussian_model.means import QuadraticMean
-
-
-MEAN_MODULE_MAP = {
-    "constant": ConstantMean,
-    "linear": LinearMean,
-    "quadratic": QuadraticMean,
-}
-
-COVARIANCE_MODULE_MAP = {
-    "rbf": RBFKernel,
-    "matern1_5": lambda nu: MaternKernel(nu=1.5),
-    "matern2_5": lambda nu: MaternKernel(nu=2.5),
-}
+from core.optimizer.gaussian_model.covariance_function.covariance import (
+    COVARIANCE_MODULE_MAP,
+)
+from core.optimizer.gaussian_model.mean_fuctions.means import MEAN_MODULE_MAP
 
 
 class ConstantMeanSingleTaskGPModel(BaseGPModel):
+    """All GP model with constant mean should inherit from this class"""
+
     def __init__(self, covariance_module: str, **kwargs):
         super().__init__(
             mean_module="constant", covariance_module=covariance_module, **kwargs
@@ -40,6 +30,8 @@ class ConstantMeanSingleTaskGPModel(BaseGPModel):
 
 
 class LinearMeanSingleTaskGPModel(BaseGPModel):
+    """All GP model with linear mean should inherit from this class"""
+
     def __init__(self, covariance_module: str, **kwargs):
         super().__init__(
             mean_module="linear", covariance_module=covariance_module, **kwargs
@@ -57,6 +49,8 @@ class LinearMeanSingleTaskGPModel(BaseGPModel):
 
 
 class QuadraticMeanSingleTaskGPModel(BaseGPModel):
+    """All GP model with quadratic mean should inherit from this class"""
+
     def __init__(self, covariance_module: str, **kwargs):
         super().__init__(
             mean_module="quadratic", covariance_module=covariance_module, **kwargs

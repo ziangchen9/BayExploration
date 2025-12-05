@@ -1,14 +1,8 @@
-"""
-实验层和目标函数和优化器耦合?
-一次实验是指一个函数使用一个[或多个采集函数]执行n次迭代，再将这个过程进行m次重复
-"""
-
 from __future__ import annotations
 
 import json
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 import yaml
@@ -17,25 +11,25 @@ from botorch.models import SingleTaskGP
 from gpytorch import ExactMarginalLogLikelihood
 from torch.quasirandom import SobolEngine
 
-from core.benchmark.base_function import BaseTestFunction
+from core.benchmark_function.base_function import BaseTestFunction
 
 
-class BaseExperimentFactory(ABC):
-    gp_history: Dict[int, Any] = {}  #
-    x_history: Dict[int, float] = {}
-    y_noised_history: Dict[int, float] = {}
-    y_real_history: Dict[int, float] = {}
+class Experiment:
+    gp_history: List[SingleTaskGP] = []
+    x_history: List[torch.Tensor] = []
+    y_noised_history: List[torch.Tensor] = []
+    y_real_history: List[torch.Tensor] = []
 
-
-class ExperimentFactory(BaseExperimentFactory):
-
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Union[str, Path, Dict[str, Any]]):
+        if isinstance(config, str | Path):
+            self.config = self.load_config(config)
+        else:
+            self.config = config
         self.init_sample_x = None
         self.test_function = None
-        self.config: Dict[str, Any] = config
 
     @classmethod
-    def load_config(cls, config: str | Path | Dict) -> ExperimentFactory:
+    def load_config(cls, config: str | Path | Dict) -> Experiment:
         # TODO: 若config是字典则直接使用
         suffix = Path(config).suffix.lower()
         with open(config, "r") as f:
@@ -66,10 +60,15 @@ class ExperimentFactory(BaseExperimentFactory):
 
         # 采集函数
         pass
+        """
+        
+        """
 
     def _init_sampling(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        initial sampling with sobol engine
+        """initial sampling with sobol engine
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: initial sampling points, noised values, real values
         """
         sobol_engine = SobolEngine(dimension=self.test_function.dim, scramble=True)
         draw_number = self.config["init_scale"] * self.test_function.dim
@@ -102,18 +101,4 @@ class ExperimentFactory(BaseExperimentFactory):
         fit_gpytorch_mll(ExactMarginalLogLikelihood(self.gp.likelihood, self.gp))
 
     def _update_history(self):
-        pass
-
-    @abstractmethod
-    def _get_next_point(self):
-        pass
-
-    @abstractmethod
-    def run(self):
-        pass
-
-    def update_config(self):
-        pass
-
-    def dump_config(self):
         pass

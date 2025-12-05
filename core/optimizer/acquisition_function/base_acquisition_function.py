@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
-from botorch.models import SingleTaskGP
 import torch
+from botorch.models import SingleTaskGP
+
 from core.optimizer.gaussian_model.single_guassian import BaseGPModel
 
 
@@ -26,19 +28,17 @@ class BaseAcquisitionFunction(ABC):
         return seed
 
     @abstractmethod
-    def _setup_acquisition_function(self, pg: SingleTaskGP, **kwargs):
+    def _setup(self, pg: SingleTaskGP, **kwargs):
         raise NotImplementedError
 
-    def setup_acquisition_function(self, pg: BaseGPModel, **kwargs):
-        self.acquisition_function = self._setup_acquisition_function(
-            pg=pg.model, **kwargs
-        )
+    def setup(self, pg: BaseGPModel, **kwargs):
+        self.acquisition_function = self._setup(pg=pg.model, **kwargs)
         return self.acquisition_function
 
     @abstractmethod
-    def _optimize(self, seed: int, **kwargs):
+    def _optimize(self, seed: int, **kwargs) -> Any:
         raise NotImplementedError
 
-    def optimize(self, **kwargs):
+    def optimize(self, **kwargs) -> Any:
         seed = self._next_seed()
         return self._optimize(seed=seed, **kwargs)

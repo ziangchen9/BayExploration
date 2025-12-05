@@ -1,6 +1,6 @@
 import torch
 
-from core.benchmark.base_function import BaseTestFunction
+from core.benchmark_function.base_function import BaseTestFunction
 
 
 class Easom(BaseTestFunction):

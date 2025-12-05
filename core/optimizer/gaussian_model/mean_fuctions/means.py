@@ -1,5 +1,6 @@
 import gpytorch
 import torch
+from gpytorch.means import ConstantMean, LinearMean
 
 
 class QuadraticMean(gpytorch.means.Mean):
@@ -27,3 +28,10 @@ class QuadraticMean(gpytorch.means.Mean):
         if self.bias is not None:
             result = result + self.bias
         return result
+
+
+MEAN_MODULE_MAP = {
+    "constant": ConstantMean,
+    "linear": LinearMean,
+    "quadratic": QuadraticMean,
+}
