@@ -4,7 +4,7 @@ from typing import Any
 import torch
 from botorch.models import SingleTaskGP
 
-from core.optimizer.gaussian_model.single_guassian import BaseGPModel
+from src.optimizer.gaussian_model.single_guassian import BaseGPModel
 
 
 class BaseAcquisitionFunction(ABC):

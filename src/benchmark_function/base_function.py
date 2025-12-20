@@ -34,7 +34,7 @@ class BaseTestFunction(ABC):
     def bound(self) -> torch.Tensor:
         return torch.tensor(self._bound, **self.kwargs)
 
-    @abstractmethod  # 使用@abstractmethod装饰器将方法声明为抽象方法，强制子类必须实现该方法
+    @abstractmethod
     def _evaluate(self, x: torch.Tensor) -> torch.Tensor:
         pass
 

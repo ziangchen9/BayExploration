@@ -1,0 +1,42 @@
+# Example configuration for the experiment, should not be modified
+experiment_name: "test"
+
+target_function:
+  name: "booth"
+  params_num: 2
+  minimize: True
+  global_optimal: [ 0.0, 0.0 ]
+  global_optimal_value: 0.0
+
+model:
+  gp_type: "SingleTaskGP"
+  mean_module: "constant"
+  covar_module:
+    type: "Matern-1.5"
+  input_transform: "normalize"
+  outcome_transform: "standardize"
+
+acquisition:
+  acq_function: "qUBC"
+
+environment:
+  device: "cuda:0"
+  dtype: "float64"
+  seed: 42
+
+search_space:
+  bounds:
+    x1: [ -10.0, 10.0 ]
+    x2: [ -10.0, 10.0 ]
+  variable_types:
+    x1: "continuous"
+    x2: "continuous"
+
+execution:
+  noise_level: 0.01
+  num_init_points: 20
+  budget: 30
+  num_replications: 30
+  checkpoint_file: "bo_checkpoint.json"
+  log_interval: 5
+  save_results: "results.json"

@@ -1,21 +1,21 @@
 from typing import Any
 
 import torch
-from botorch.acquisition import qSimpleRegret
+from botorch.acquisition import qUpperConfidenceBound
 from botorch.optim import optimize_acqf
 
-from core.optimizer.acquisition_function.base_acquisition_function import (
+from src.optimizer.acquisition_function.base_acquisition_function import (
     BaseAcquisitionFunction,
 )
-from core.optimizer.gaussian_model.base_guassian import BaseGPModel
+from src.optimizer.gaussian_model.base_guassian import BaseGPModel
 
 
-class QSimpleRegretAcquisitionFunction(BaseAcquisitionFunction):
+class QUCBAcquisitionFunction(BaseAcquisitionFunction):
     def _setup(self, pg: BaseGPModel, **kwargs):
-        return qSimpleRegret(model=pg.model)
+        return qUpperConfidenceBound(model=pg.model, **kwargs)
 
     def _optimize(self, seed: int, **kwargs) -> Any:
-        bounds = kwargs.get("bounds", None)
+        bounds = kwargs.get("bounds")
         q = kwargs.get("q", 1)
         num_restarts = kwargs.get("num_restarts", 20)
         raw_samples = kwargs.get("raw_samples", 50)

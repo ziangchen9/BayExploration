@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from core.benchmark_function.base_function import BaseTestFunction
+from src.benchmark_function.base_function import BaseTestFunction
 
 
 class Ackley(BaseTestFunction):
