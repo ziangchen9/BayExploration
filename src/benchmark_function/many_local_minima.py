@@ -11,8 +11,8 @@ class Ackley(BaseTestFunction):
     _optimal_value = 0.0
     _bound = [[-32.7680, -32.7680], [32.7680, 32.7680]]
 
-    def __init__(self, noise_level: float = 0.05, **kwargs):
-        super().__init__(noise_level, **kwargs)
+    def __init__(self, noise_level: float = 0.05):
+        super().__init__(noise_level)
 
     def evaluate(self, x: torch.Tensor, noise: float) -> torch.Tensor:
         x1, x2 = x[..., 0], x[..., 1]

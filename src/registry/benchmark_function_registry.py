@@ -15,7 +15,7 @@ BENCHMARK_FUNCTION_REGISTRY: Dict[str, Type[BaseTestFunction]] = {
 }
 
 
-def get_test_function(name: str, **kwargs) -> BaseTestFunction:
+def get_target_function(name: str, **kwargs) -> BaseTestFunction:
     name_lower = name.lower()
     if name_lower not in BENCHMARK_FUNCTION_REGISTRY:
         available = ", ".join(sorted(BENCHMARK_FUNCTION_REGISTRY.keys()))
@@ -31,6 +31,6 @@ def list_available_functions() -> list[str]:
 
 __all__ = [
     "BENCHMARK_FUNCTION_REGISTRY",
-    "get_test_function",
+    "get_target_function",
     "list_available_functions",
 ]

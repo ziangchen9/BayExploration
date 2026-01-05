@@ -29,26 +29,20 @@ ACQUISITION_FUNCTION_REGISTRY: Dict[str, Type[BaseAcquisitionFunction]] = {
     "qsimpleregret": QSimpleRegretAcquisitionFunction,
     "qlognoisyei": QLogNoisyEI,
     "thompsonsampling": ThompsonSamplingAcquisitionFunction,
-    "ts": ThompsonSamplingAcquisitionFunction,  # 简写
+    "ts": ThompsonSamplingAcquisitionFunction,
 }
 
 
-def get_acquisition_function(name: str, **kwargs) -> BaseAcquisitionFunction:
+def get_acquisition_function(name: str) -> BaseAcquisitionFunction:
     if name not in ACQUISITION_FUNCTION_REGISTRY:
         available = ", ".join(list_available_acquisition_functions())
         raise ValueError(
             f"Unknown acquisition function name: {name}. Available functions: {available}"
         )
-    return ACQUISITION_FUNCTION_REGISTRY[name](**kwargs)
+    return ACQUISITION_FUNCTION_REGISTRY[name]()
 
 
 def list_available_acquisition_functions() -> list[str]:
-    """列出所有可用的采集函数名称（去重，优先显示简短名称）
-
-    Returns:
-        list[str]: 可用的采集函数名称列表（已排序，去重）
-    """
-    # 返回优先的简短名称或标准格式（过滤掉下划线格式的别名）
     preferred_names = [
         "qucb",
         "qkg",

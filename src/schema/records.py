@@ -1,31 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 from pydantic import BaseModel, Field, model_validator
-
-CONFIG_SCHEMA = {
-    "target_function": {},
-    "acquisition": {},
-    "model": {},
-    "environment": {
-        "seed": {},
-        "device": {},
-        "dtype": {},
-    },
-    "search_space": {},
-    "execution": {
-        "num_init_points": {},
-        "budget": {},
-        "num_replications": {},
-        "checkpoint_file": {},
-        "log_interval": {},
-        "save_results": {},
-        "noise_level": {},
-    },
-}
 
 
 class OptimizationRecord(BaseModel):
@@ -72,7 +51,7 @@ class ExperimentRecord(BaseModel):
 
     aqc_func_name: str = Field(description="采集函数名称")
     target_func_name: str = Field(description="优化目标函数名称")
-    records: list[OptimizationRecord] = (
+    records: List[List[OptimizationRecord]] = (
         Field(default_factory=list, description="优化记录列表"),
     )
     start_time: datetime = Field(
@@ -103,7 +82,7 @@ class ExperimentRecord(BaseModel):
             or record.best_value_by_now < self.global_best_value
         ):
             self.global_best_value = record.best_value_by_now
-            self.global_best_position = record.best_position_by_now.clone()
+            self.global_best_solution = record.best_solution_by_now.clone()
 
     def get_best_record(self) -> Optional[OptimizationRecord]:
         """获取最优记录"""

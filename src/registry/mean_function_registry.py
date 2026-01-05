@@ -11,14 +11,14 @@ MEAN_FUNCTION_REGISTRY: Dict[str, Type | Callable] = {
 }
 
 
-def get_mean_function(name: str, **kwargs) -> Type | Callable:
+def get_mean_function(name: str) -> Callable:
     name_lower = name.lower()
     if name_lower not in MEAN_FUNCTION_REGISTRY:
         available = ", ".join(sorted(MEAN_FUNCTION_REGISTRY.keys()))
         raise ValueError(
             f"Unknown mean function name: {name}. Available functions: {available}"
         )
-    return MEAN_FUNCTION_REGISTRY[name_lower]
+    return MEAN_FUNCTION_REGISTRY[name_lower]()
 
 
 def list_available_mean_functions() -> list[str]:

@@ -9,9 +9,8 @@ class Easom(BaseTestFunction):
     _optimal_value = -1.0
     _bound = [[-5.0, -5.0], [5.0, 5.0]]
 
-    def __init__(self, noise_level: float = 0.05, **kwargs):
+    def __init__(self, noise_level: float = 0.05):
         super().__init__(noise_level=noise_level)
-        self.kwargs = {**self._default_kwargs, **kwargs}
 
     def evaluate(self, x: torch.Tensor) -> torch.Tensor:
         x1, x2 = x[..., 0], x[..., 1]

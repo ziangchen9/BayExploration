@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 from pydantic import BaseModel, Field, model_validator
@@ -30,6 +30,8 @@ CONFIG_SCHEMA = {
 
 class OptimizationRecord(BaseModel):
     """单次贝叶斯优化结果记录"""
+    
+    model_config = {"arbitrary_types_allowed": True}
 
     iteration_id: int = Field(ge=0, description="迭代次数编号")
     replication_id: int = Field(ge=0, description="重复次数编号")
@@ -69,22 +71,24 @@ class OptimizationRecord(BaseModel):
 
 class ExperimentRecord(BaseModel):
     """All the records of an experiment"""
+    
+    model_config = {"arbitrary_types_allowed": True}
 
     aqc_func_name: str = Field(description="采集函数名称")
     target_func_name: str = Field(description="优化目标函数名称")
-    records: list[OptimizationRecord] = (
+    records: List[List[OptimizationRecord]] = (
         Field(default_factory=list, description="优化记录列表"),
     )
     start_time: datetime = Field(
         default_factory=datetime.now, description="实验开始时间"
     )
     end_time: datetime = Field(default_factory=datetime.now, description="实验结束时间")
-    duration: float = Field(description="实验持续时间")
+    duration: float = Field(default=0.0, description="实验持续时间")
     total_iterations: int = Field(default_factory=int, description="单轮迭代次数")
     total_replications: int = Field(default_factory=int, description="总重复轮数")
     global_best_value: float = Field(default_factory=float, description="全局最优值")
     global_best_solution: torch.Tensor = Field(
-        default_factory=torch.Tensor, description="全局最优解"
+        default_factory=lambda: torch.tensor([]), description="全局最优解"
     )
 
     @model_validator(mode="after")
@@ -103,7 +107,7 @@ class ExperimentRecord(BaseModel):
             or record.best_value_by_now < self.global_best_value
         ):
             self.global_best_value = record.best_value_by_now
-            self.global_best_position = record.best_position_by_now.clone()
+            self.global_best_solution = record.best_solution_by_now.clone()
 
     def get_best_record(self) -> Optional[OptimizationRecord]:
         """获取最优记录"""
@@ -115,7 +119,9 @@ class ExperimentRecord(BaseModel):
         self, replication_id: int
     ) -> list[OptimizationRecord]:
         """按重复实验ID获取记录"""
-        return self.records[replication_id]
+        if replication_id < len(self.records):
+            return self.records[replication_id]
+        return []
 
     def to_dict(self) -> dict[str, Any]:
         return {

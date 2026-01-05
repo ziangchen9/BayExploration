@@ -5,15 +5,10 @@
 
 from src.benchmark_function.base_function import BaseTestFunction
 
-# 从 registry 导入注册表和工厂函数
-from src.registry.benchmark_function_registry import (
-    BENCHMARK_FUNCTION_REGISTRY,
-    get_test_function,
-)
+# 注意：为了避免循环导入，这里不直接导入 registry
+# 如果需要使用注册表和工厂函数，请从 src.registry 导入：
+#   from src.registry import get_target_function, get_test_function, BENCHMARK_FUNCTION_REGISTRY
 
-# 向后兼容：导出 BaseTestFunction 和 get_test_function
 __all__ = [
     "BaseTestFunction",
-    "BENCHMARK_FUNCTION_REGISTRY",
-    "get_test_function",
 ]

@@ -11,16 +11,18 @@ from src.optimizer.gaussian_model.single_guassian import BaseGPModel
 
 
 class QKGAcquisitionFunction(BaseAcquisitionFunction):
-    def _setup(self, pg: BaseGPModel, **kwargs):
-        num_fantasies = kwargs.get("num_fantasies", 128)
-        return qKnowledgeGradient(model=pg.model, num_fantasies=num_fantasies)
+
+    OPTIMIZE_KWARGS = {
+        "q": 1,
+        "num_restarts": 20,
+        "raw_samples": 50,
+        "options": {"dtype": torch.float64, "with_grad": True},
+    }
+
+    def _setup(self, pg: BaseGPModel, bounds: torch.Tensor, **kwargs):
+        return qKnowledgeGradient(model=pg.model, **kwargs, **self.OPTIMIZE_KWARGS)
 
     def _optimize(self, seed: int, **kwargs) -> Any:
-        bounds = kwargs.get("bounds")
-        q = kwargs.get("q", 1)
-        num_restarts = kwargs.get("num_restarts", 20)
-        raw_samples = kwargs.get("raw_samples", 50)
-        options = kwargs.get("options", {"dtype": torch.float64, "with_grad": True})
         candidate, acq_value = optimize_acqf(
             self.acquisition_function,
             bounds=bounds,

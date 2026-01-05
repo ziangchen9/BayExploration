@@ -17,7 +17,7 @@ model:
   outcome_transform: "standardize"
 
 acquisition:
-  acq_function: "qUBC"
+  acq_function: "qUCB"
 
 environment:
   device: "cuda:0"

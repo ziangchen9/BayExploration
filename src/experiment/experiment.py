@@ -5,14 +5,20 @@ from typing import Any, Dict, Union
 
 import torch
 import yaml
-from botorch.models import SingleTaskGP
-from torch.quasirandom import SobolEngine
+from botorch.utils.sampling import draw_sobol_samples
 
-from src.registry import get_test_function, get_mean_function, get_covariance_function, get_acquisition_function
+from src.optimizer.acquisition_function.base_acquisition_function import (
+    BaseAcquisitionFunction,
+)
 from src.benchmark_function.base_function import BaseTestFunction
 from src.optimizer.gaussian_model.base_guassian import BaseGPModel
-from src.optimizer.gaussian_model.single_guassian import SingleTaskGPModel
-from src.optimizer.optimizers import BaseBayesianOptimizer
+from src.registry import (
+    get_acquisition_function,
+    get_covariance_function,
+    get_gaussian_model,
+    get_mean_function,
+    get_target_function,
+)
 from src.schema import CONFIG_SCHEMA, ExperimentRecord, OptimizationRecord
 
 
@@ -28,17 +34,30 @@ class Experiment:
         except Exception as e:
             raise ValueError(e)
 
-        self.test_function: BaseTestFunction = self._set_up_target_function()
-        self.optimizer: BaseBayesianOptimizer = self._set_up_optimizer()
-        self.gp_model: BaseGPModel = self._set_up_gaussian_model()
-        self.init_sample_x: torch.Tensor = self._init_sampling()
-        self.init_sample_y: torch.Tensor = self._init_sampling()
-        self.init_real_y: torch.Tensor = self._init_sampling()
-        self.gp: SingleTaskGP = self._fit_gaussian_process()
-        self.current_iteration = 0
-        self.best_value: float = self._update_history()
-        self.best_position: torch.Tensor = self._update_history()
-        self.record = None
+        self.budget = self.config.get("execution").get("budget")
+        self.num_replications = self.config.get("execution").get("num_replications", 1)
+        self.num_init_points = self.config.get("execution").get("num_init_points", 5)
+        self.noise_level = self.config.get("execution").get("noise_level", 0.01)
+        
+        # 设置随机种子和设备
+        seed = self.config.get("environment", {}).get("seed", 42)
+        device_str = self.config.get("environment", {}).get("device", "cpu")
+        dtype_str = self.config.get("environment", {}).get("dtype", "float64")
+        
+        self.device = torch.device(device_str)
+        self.dtype = getattr(torch, dtype_str)
+        torch.manual_seed(seed)
+        
+        # 先设置目标函数（用于获取维度等信息）
+        self.target_function: BaseTestFunction = self._set_up_target_function()
+        
+        # 获取搜索空间边界（需要先有目标函数）
+        self.bounds = self._get_bounds()
+        self.acquisition_function: BaseAcquisitionFunction = (
+            self.get_acquisition_function()
+        )
+
+        self.experiment_record: ExperimentRecord = None
 
     @staticmethod
     def _load_config(config: str | Path) -> dict[str, Any]:
@@ -68,275 +87,236 @@ class Experiment:
         _validate(self.config, CONFIG_SCHEMA)
 
     def _set_up_target_function(self) -> BaseTestFunction:
-        """从配置中设置目标函数"""
-        target_func_name = self.config["target_function"]["name"]
-
-        noise_level = self.config.get("execution", {}).get("noise_level")
-        env_config = self.config.get("environment", {})
-        device = env_config.get("device")
-        dtype_str = env_config.get("dtype")
-
-        return get_test_function(
-            name=target_func_name,
-            noise_level=noise_level,
-            device=device,
-            dtype=dtype_str,
-        )
-
-    # TODO:待完善
-    def _set_up_optimizer(self) -> None:
-        mean_func_name = self.config["mean_function"]["name"]
-        mean_func = get_mean_function(mean_func_name)()
-        covar_func_name = self.config["covariance_function"]["name"]
-        covar_func = get_covariance_function(covar_func_name)()
-        gp_model = SingleTaskGPModel(mean_module=mean_func, covariance_module=covar_func, target_function_dim=self.test_function.dim)
-        acq_func_name = self.config["acquisition_function"]["name"]
-        acq_func = get_acquisition_function(acq_func_name)()
+        """设置目标函数"""
+        func_name = self.config["target_function"]["name"]
+        func_kwargs = {
+            "noise_level": self.noise_level,
+        }
+        return get_target_function(func_name, **func_kwargs)
+    
+    def _get_bounds(self) -> torch.Tensor:
+        """从配置中获取搜索空间边界，返回 [2, dim] 格式的张量"""
+        search_space = self.config.get("search_space", {})
+        bounds_dict = search_space.get("bounds", {})
         
-
-    def update_config(self) -> None:
-        """根据测试函数更新配置"""
-        if self.test_function is None:
-            return
-
-        # 从测试函数获取维度、边界等信息并更新配置
-        if "search_space" not in self.config:
-            self.config["search_space"] = {}
-
-        # 使用测试函数的边界信息
-        bounds = self.test_function.bound.tolist()
-        self.config["search_space"]["bounds"] = bounds
-
-    def _execute_single_experiment(
-        self, func: BaseTestFunction, optimizer: BaseBayesianOptimizer | None = None
-    ) -> None:
-        """执行单次实验 [后期改为多进程可并行]
-
-        Args:
-            func: 测试函数实例
-            optimizer: 优化器实例，如果为None则使用self.optimizer
-        """
-        # 测试函数与贝叶斯优化器解耦合，测试函数的配置覆盖优化器配置
-        self.test_function = func
-        self.update_config()
-
-        if optimizer is not None:
-            self.optimizer = optimizer
-
-        if self.optimizer is None:
-            raise ValueError(
-                "优化器未设置，请在_execute_single_experiment中传入或先设置self.optimizer"
+        # 如果没有bounds，使用目标函数的默认边界
+        if not bounds_dict:
+            bounds = self.target_function.bound
+            # bound属性返回的是 [2, dim] 格式，第一行是下界，第二行是上界
+            # 但我们需要确保格式正确
+            if bounds.shape[0] == 2 and bounds.shape[1] == self.target_function.dim:
+                return bounds.to(self.device).to(self.dtype)
+            else:
+                # 如果格式不对，转置
+                return bounds.T.to(self.device).to(self.dtype)
+        
+        # 从配置中构建边界张量
+        dim = self.target_function.dim
+        
+        # 构建边界列表：[[lower1, lower2, ...], [upper1, upper2, ...]]
+        lower_bounds = []
+        upper_bounds = []
+        for i in range(1, dim + 1):
+            key = f"x{i}"
+            if key in bounds_dict:
+                lower_bounds.append(bounds_dict[key][0])
+                upper_bounds.append(bounds_dict[key][1])
+            else:
+                raise ValueError(f"Missing bounds for {key}")
+        
+        # 转换为 [2, dim] 格式的边界张量
+        bounds_tensor = torch.tensor(
+            [lower_bounds, upper_bounds], 
+            dtype=self.dtype, 
+            device=self.device
+        )
+        return bounds_tensor
+    
+    def get_gaussian_model(self) -> BaseGPModel:
+        """获取高斯过程模型"""
+        model_config = self.config.get("model", {})
+        mean_name = model_config.get("mean_module", "constant")
+        covar_config = model_config.get("covar_module", {})
+        covar_type = covar_config.get("type", "Matern-1.5").lower().replace("-", "_").replace("_", "")
+        # 处理 "matern1.5" -> "matern1_5"
+        if "matern" in covar_type and "." in covar_type:
+            covar_type = covar_type.replace(".", "_")
+        
+        mean_module = get_mean_function(mean_name)
+        covariance_module = get_covariance_function(covar_type)
+        
+        return get_gaussian_model(
+            name="singletaskgp",
+            mean_module=mean_module,
+            covariance_module=covariance_module,
+            target_function_dim=self.target_function.dim
+        )
+    
+    def get_acquisition_function(self) -> BaseAcquisitionFunction:
+        """获取采集函数"""
+        acq_config = self.config.get("acquisition", {})
+        acq_name = acq_config.get("acq_function", "qucb").lower()
+        return get_acquisition_function(acq_name)
+    
+    def _initialize_points(self, n_points: int, seed: int = None) -> torch.Tensor:
+        """使用Sobol采样初始化点"""
+        if seed is not None:
+            torch.manual_seed(seed)
+        bounds = self.bounds
+        X_init = draw_sobol_samples(bounds=bounds, n=n_points, q=1).squeeze(1)
+        return X_init.to(self.device).to(self.dtype)
+    
+    def _execute_single_optimization(self, seed: int = 0) -> list[OptimizationRecord]:
+        """执行单次贝叶斯优化"""
+        records = []
+        
+        # 初始化点
+        X = self._initialize_points(self.num_init_points, seed=seed)
+        # 调用目标函数（使用__call__方法，它会自动处理噪声）
+        Y = self.target_function(X, noise_level=self.noise_level)
+        
+        # 确保Y的形状正确 [n, 1]
+        if Y.dim() == 0:
+            Y = Y.unsqueeze(0).unsqueeze(-1)
+        elif Y.dim() == 1:
+            Y = Y.unsqueeze(-1)
+        # 如果Y是 [n, m] 形状，取第一列
+        if Y.shape[1] > 1:
+            Y = Y[:, 0:1]
+        
+        # 初始化最优值
+        best_value = Y.min().item()
+        best_idx = Y.argmin()
+        best_solution = X[best_idx].clone()
+        
+        # 记录初始点
+        for i in range(self.num_init_points):
+            y_val = Y[i, 0].item()  # 取 [i, 0] 元素
+            record = OptimizationRecord(
+                iteration_id=i,
+                replication_id=0,
+                current_value=y_val,
+                current_position=X[i].clone(),
+                best_value_by_now=best_value,
+                best_solution_by_now=best_solution.clone(),
+                start_time=datetime.now(),
+                duration=0.0
             )
-
-        # 从 test function 处获得函数的维度，最小值，边界等信息
-        # 初始函数采样
-        self._init_sampling()
-
-        # 拟合高斯过程
-        self._fit_gaussian_process()
-
-        # 初始化历史记录
-        self.best_value = float(self.init_sample_y.min())
-        best_idx = int(self.init_sample_y.argmin())
-        self.best_position = self.init_sample_x[best_idx].clone()
-
-        # 主优化循环
-        num_iterations = self.config.get("num_iterations", 30)
-        for iteration in range(num_iterations):
-            self.current_iteration = iteration
-
-            # 使用优化器获取下一个候选点
-            bounds_tensor = self.test_function.bound.t().to(
-                dtype=getattr(torch, self.config["numerical_precision"]),
-                device=torch.device(self.config["device"]),
+            record.end_time = datetime.now()
+            records.append(record)
+        
+        # 贝叶斯优化循环
+        for iteration in range(self.num_init_points, self.budget):
+            # 拟合GP模型
+            gp_model = self.get_gaussian_model()
+            gp_model.fit(target_function_dim=self.target_function.dim, x=X, y=Y)
+            
+            # 设置并优化采集函数
+            self.acquisition_function.setup()
+            self.acquisition_function.OPTIMIZE_KWARGS["bounds"] = self.bounds
+            
+            # 优化采集函数获取下一个点
+            result = self.acquisition_function.optimize(
+                seed=seed + iteration, gp_model=gp_model
             )
-
-            acq_optimizer_config = self.config.get("acq_optimizer", {})
-            candidate, _ = self.optimizer.optimize(
-                bounds=bounds_tensor,
-                q=1,
-                num_restarts=acq_optimizer_config.get("num_restarts", 10),
-                raw_samples=acq_optimizer_config.get("raw_samples", 256),
-                options={
-                    "dtype": getattr(torch, self.config["numerical_precision"]),
-                    "with_grad": True,
-                },
-            )
-
-            # 评估候选点
-            candidate_y = self.test_function(
-                x=candidate, noise_level=float(self.config.get("noise_level", 0.01))
-            )
-
-            # 更新训练数据
-            self.init_sample_x = torch.cat([self.init_sample_x, candidate], dim=0)
-            self.init_sample_y = torch.cat([self.init_sample_y, candidate_y], dim=0)
-
+            
+            # 处理返回结果（可能是元组或单个值）
+            if isinstance(result, tuple):
+                candidate, _ = result
+            else:
+                candidate = result
+            
+            # 确保candidate的形状正确
+            if candidate.dim() > 2:
+                candidate = candidate.squeeze(0)
+            if candidate.dim() == 1:
+                candidate = candidate.unsqueeze(0)
+            
+            # 评估新点（使用__call__方法，它会自动处理噪声）
+            y_new = self.target_function(candidate, noise_level=self.noise_level)
+            
+            # 确保y_new的形状正确 [1, 1]
+            if y_new.dim() == 0:
+                y_new = y_new.unsqueeze(0).unsqueeze(-1)
+            elif y_new.dim() == 1:
+                y_new = y_new.unsqueeze(-1)
+            # 如果y_new是 [1, m] 形状，取第一列
+            if y_new.shape[1] > 1:
+                y_new = y_new[:, 0:1]
+            
+            # 更新数据
+            X = torch.cat([X, candidate], dim=0)
+            Y = torch.cat([Y, y_new], dim=0)
+            
             # 更新最优值
-            current_value = float(candidate_y.item())
-            if self.best_value is None or current_value < self.best_value:
-                self.best_value = current_value
-                self.best_position = candidate[0].clone()
-
-            # 更新高斯过程模型
-            self._fit_gaussian_process()
-
-            # 更新历史记录
-            self._update_history(iteration, candidate[0], current_value)
-
-    def _init_sampling(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """使用Sobol序列进行初始采样
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: 初始采样点、带噪声的值、真实值
-        """
-        sobol_engine = SobolEngine(dimension=self.test_function.dim, scramble=True)
-        draw_number = int(self.config.get("num_init_points", 5))
-        init_sample_x = sobol_engine.draw(draw_number).to(
-            dtype=getattr(torch, self.config["numerical_precision"]),
-            device=torch.device(self.config["device"]),
-        )
-
-        # 将[0,1]区间的采样点映射到实际边界
-        bounds = self.test_function.bound
-        for i in range(self.test_function.dim):
-            init_sample_x[:, i] = (
-                init_sample_x[:, i] * (bounds[i, 1] - bounds[i, 0]) + bounds[i, 0]
+            y_val = y_new[0, 0].item()  # 取 [0, 0] 元素
+            if y_val < best_value:
+                best_value = y_val
+                best_solution = candidate.clone()
+            
+            # 记录
+            record = OptimizationRecord(
+                iteration_id=iteration,
+                replication_id=0,
+                current_value=y_val,
+                current_position=candidate.clone(),
+                best_value_by_now=best_value,
+                best_solution_by_now=best_solution.clone(),
+                start_time=datetime.now(),
+                duration=0.0
             )
-
-        self.init_sample_x = init_sample_x
-        self.init_sample_y = self.test_function(
-            x=self.init_sample_x,
-            noise_level=float(self.config.get("noise_level", 0.01)),
-        )
-        self.init_real_y = self.test_function(x=self.init_sample_x, noise_level=0.0)
-        return self.init_sample_x, self.init_sample_y, self.init_real_y
-
-    def _fit_gaussian_process(self) -> None:
-        """拟合高斯过程模型"""
-        # 优先使用optimizer中的model，如果没有则使用self.gp_model
-        if (
-            self.optimizer is not None
-            and hasattr(self.optimizer, "model")
-            and self.optimizer.model is not None
-        ):
-            gp_model = self.optimizer.model
-            self.gp_model = gp_model
-        elif self.gp_model is not None:
-            gp_model = self.gp_model
-        else:
-            # 如果没有设置gp_model，则从配置创建（向后兼容）
-            model_config = self.config.get("model", {})
-            from core.optimizer.gaussian_model.single_guassian import (
-                ConstantMeanSingleTaskGPModel,
-            )
-
-            covar_type = (
-                model_config.get("covar_module", {}).get("type", "matern2_5").lower()
-            )
-            if covar_type == "matern":
-                nu = model_config.get("covar_module", {}).get("nu", 2.5)
-                if abs(nu - 1.5) < 0.1:
-                    covar_type = "matern1_5"
-                elif abs(nu - 2.5) < 0.1:
-                    covar_type = "matern2_5"
-                else:
-                    covar_type = "matern2_5"  # 默认
-
-            # 创建模型
-            gp_model = ConstantMeanSingleTaskGPModel(covariance_module=covar_type)
-            self.gp_model = gp_model
-
-        # 拟合模型
-        self.gp = gp_model.fit(self.init_sample_x, self.init_sample_y)
-
-        # 更新optimizer的模型引用
-        if self.optimizer is not None and hasattr(self.optimizer, "model"):
-            self.optimizer.model.model = self.gp
-            # 重新设置acquisition function以使用更新后的模型
-            self.optimizer.acquisition_function.setup(self.optimizer.model)
-
-    def _update_history(
-        self, iteration: int, position: torch.Tensor, value: float
-    ) -> None:
-        """更新历史记录
-
-        Args:
-            iteration: 当前迭代次数
-            position: 当前采样位置
-            value: 当前函数值
-        """
-        record = OptimizationRecord(
-            iteration_id=iteration,
-            replication_id=0,  # 单次实验时默认为0
-            current_value=value,
-            current_position=position,
-            best_value=self.best_value if self.best_value is not None else value,
-            best_position=(
-                self.best_position if self.best_position is not None else position
-            ),
-            start_time=datetime.now(),
-            end_time=None,
-            duration=0.0,
-        )
-        record.end_time = datetime.now()
-        record.duration = (record.end_time - record.start_time).total_seconds()
-
-        self.history.append(record)
-        Experiment.RECORDS.append(record)
-
-    def run(
-        self,
-        test_function: BaseTestFunction | None = None,
-        optimizer: BaseBayesianOptimizer | None = None,
-    ) -> list[OptimizationRecord]:
-        """运行实验的主入口
-
-        Args:
-            test_function: 测试函数实例，如果为None则使用self.test_function
-            optimizer: 优化器实例，如果为None则使用self.optimizer
-
-        Returns:
-            优化历史记录列表
-        """
-        if test_function is None:
-            if self.test_function is None:
-                raise ValueError(
-                    "测试函数未设置，请在run方法中传入或先设置self.test_function"
-                )
-        else:
-            self.test_function = test_function
-
-        if optimizer is None:
-            if self.optimizer is None:
-                raise ValueError(
-                    "优化器未设置，请在run方法中传入或先设置self.optimizer"
-                )
-        else:
-            self.optimizer = optimizer
-
-        # 执行单次实验
-        self._execute_single_experiment(self.test_function, self.optimizer)
-
-        return self.history
-
-    def _record(self, record: OptimizationRecord) -> None:
-        """record experiment record"""
-        self.RECORDS.append(record)
-
-
-
-    def _init_record(self) -> None:
-        """init experiment record"""
-        self.record = ExperimentRecord(
-            aqc_func_name=self.config["acquisition_function"]["name"],
-            target_func_name=self.config["target_function"]["name"],
+            record.end_time = datetime.now()
+            records.append(record)
+            
+            if (iteration + 1) % 5 == 0:
+                print(f"迭代 {iteration + 1}/{self.budget}, 当前最优值: {best_value:.6f}")
+        
+        return records
+    
+    def run(self) -> ExperimentRecord:
+        """运行完整的实验"""
+        start_time = datetime.now()
+        
+        # 初始化实验记录
+        acq_name = self.config.get("acquisition", {}).get("acq_function", "qucb")
+        target_name = self.config.get("target_function", {}).get("name", "booth")
+        
+        self.experiment_record = ExperimentRecord(
+            aqc_func_name=acq_name,
+            target_func_name=target_name,
             records=[],
-            start_time=datetime.now(),
-            end_time=None,
-            duration=0.0,
-            total_iterations=self.config["num_iterations"],
-            total_replications=self.config["num_replications"],
-            global_best_value=self.best_value,
-            global_best_solution=self.best_position,
+            start_time=start_time,
+            total_iterations=self.budget,
+            total_replications=self.num_replications,
+            global_best_value=float('inf'),
+            global_best_solution=torch.zeros(self.target_function.dim, dtype=self.dtype, device=self.device)
         )
+        
+        # 运行多次重复实验
+        for rep_id in range(self.num_replications):
+            print(f"\n运行重复实验 {rep_id + 1}/{self.num_replications}")
+            seed = self.config.get("environment", {}).get("seed", 42) + rep_id * 1000
+            torch.manual_seed(seed)
+            
+            records = self._execute_single_optimization(seed=seed)
+            
+            # 更新记录中的replication_id并添加到records列表
+            rep_records = []
+            for record in records:
+                record.replication_id = rep_id
+                rep_records.append(record)
+                # 更新全局最优值
+                if record.best_value_by_now < self.experiment_record.global_best_value:
+                    self.experiment_record.global_best_value = record.best_value_by_now
+                    self.experiment_record.global_best_solution = record.best_solution_by_now.clone()
+            
+            self.experiment_record.records.append(rep_records)
+        
+        self.experiment_record.end_time = datetime.now()
+        self.experiment_record.calculate_duration()
+        
+        print(f"\n实验完成！")
+        print(f"全局最优值: {self.experiment_record.global_best_value:.6f}")
+        print(f"全局最优解: {self.experiment_record.global_best_solution.tolist()}")
+        
+        return self.experiment_record

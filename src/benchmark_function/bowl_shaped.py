@@ -9,14 +9,15 @@ class Booth(BaseTestFunction):
     _optimal_value = 0.0
     _bound = [[-10.0, -10.0], [10.0, 10.0]]
 
-    def __init__(self, noise_level: float = 0.05, **kwargs):
-        super().__init__(noise_level, **kwargs)
+    def __init__(self, noise_level: float = 0.05):
+        super().__init__(noise_level)
 
-    def evaluate(self, x: torch.Tensor) -> torch.Tensor:
+    def _evaluate(self, x: torch.Tensor) -> torch.Tensor:
         x_1, x_2 = x[..., 0], x[..., 1]
         y = (x_1 + 2 * x_2 - 7) ** 2 + (2 * x_1 + x_2 - 5) ** 2
-        noise = torch.randn_like(y) * self.noise_level
-        return (y + noise).unsqueeze(-1)
+        if y.dim() == 0:
+            return y.unsqueeze(-1)
+        return y.unsqueeze(-1) if y.dim() == 1 else y
 
 
 class Bohachevsky(BaseTestFunction):

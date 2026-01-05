@@ -10,23 +10,22 @@ from gpytorch.means import Mean
 
 class BaseGPModel(ABC):
 
-    def __init__(
-        self, mean_module: Mean, covariance_module: Kernel, target_function_dim: int
-    ):
+    def __init__(self, mean_module=None, covariance_module=None, target_function_dim=None):
         self.mean_module = mean_module
         self.covariance_module = covariance_module
-        self.gp_builder = partial(
-            SingleTaskGP,
-            input_transform=Normalize(d=target_function_dim),
-            outcome_transform=Standardize(m=1),
-            mean_module=mean_module,
-            covar_module=covariance_module,
-        )
+        self.target_function_dim = target_function_dim
+        self.gaussian_model_builder = partial(SingleTaskGP)
+        self.model = None
 
     @abstractmethod
     def _fit(self, model: SingleTaskGP) -> SingleTaskGP:
         raise NotImplementedError
 
-    def fit(self, x: torch.Tensor, y: torch.Tensor) -> SingleTaskGP:
-        model = self.gp_builder(x, y)
-        return self._fit(model)
+    def fit(self,target_function_dim: int, x: torch.Tensor, y: torch.Tensor) -> None:
+        model = self.gaussian_model_builder(
+            train_X=x,
+            train_Y=y,
+            input_transform=Normalize(d=target_function_dim),
+            outcome_transform=Standardize(m=1),
+        )
+        self.model = self._fit(model)

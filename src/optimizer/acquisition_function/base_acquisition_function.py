@@ -1,15 +1,23 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 import torch
-from botorch.models import SingleTaskGP
+from botorch.sampling.normal import SobolQMCNormalSampler
 
-from src.optimizer.gaussian_model.single_guassian import BaseGPModel
+from src.optimizer.gaussian_model.base_guassian import BaseGPModel
 
 
 class BaseAcquisitionFunction(ABC):
     """Base acquisition functions."""
 
+    # kwargs for setting up the sampler
+    SAMPLER_KWARGS = {"sampler_shape": torch.Size([1024])}
+
+    # kwargs for setting up the acquisition function
+    ACQ_FUNC_KWARGS = {}
+
+    # kwargs for optimizing the acquisition function
     OPTIMIZE_KWARGS = {
         "bounds": None,
         "q": 1,
@@ -19,26 +27,29 @@ class BaseAcquisitionFunction(ABC):
     }
 
     def __init__(self):
-        self._seed = 0
-        self.acquisition_function = None
+        self.sampler_builder = None
+        self._build_sampler()
+        self.acquisition_function_builder = None
 
-    def _next_seed(self) -> int:
-        seed = self._seed
-        self._seed += 1
-        return seed
-
-    @abstractmethod
-    def _setup(self, pg: SingleTaskGP, **kwargs):
-        raise NotImplementedError
-
-    def setup(self, pg: BaseGPModel, **kwargs):
-        self.acquisition_function = self._setup(pg=pg.model, **kwargs)
-        return self.acquisition_function
+    def _build_sampler(self) -> None:
+        self.sampler_builder = partial(
+            SobolQMCNormalSampler, sample_shape=self.SAMPLER_KWARGS["sampler_shape"]
+        )
 
     @abstractmethod
-    def _optimize(self, seed: int, **kwargs) -> Any:
+    def _build_acquisition_function_builder(self) -> Callable:
         raise NotImplementedError
 
-    def optimize(self, **kwargs) -> Any:
-        seed = self._next_seed()
-        return self._optimize(seed=seed, **kwargs)
+    def setup(self):
+        self.acquisition_function_builder = self._build_acquisition_function_builder()
+
+    @abstractmethod
+    def _optimize(self, gp_model: BaseGPModel) -> Any:
+        raise NotImplementedError
+
+    def optimize(self, seed: int, gp_model: BaseGPModel) -> Any:
+        sampler = self.sampler_builder(seed=seed)
+        acquisition_function = self.acquisition_function_builder(
+            model=gp_model.model, sampler=sampler, **self.ACQ_FUNC_KWARGS
+        )
+        return self._optimize(acquisition_function=acquisition_function)
