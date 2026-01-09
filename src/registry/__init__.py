@@ -10,6 +10,7 @@ from src.registry.benchmark_function_registry import (
     get_target_function,
     list_available_functions,
 )
+
 # 向后兼容：get_test_function 作为 get_target_function 的别名
 get_test_function = get_target_function
 

@@ -30,7 +30,7 @@ CONFIG_SCHEMA = {
 
 class OptimizationRecord(BaseModel):
     """单次贝叶斯优化结果记录"""
-    
+
     model_config = {"arbitrary_types_allowed": True}
 
     iteration_id: int = Field(ge=0, description="迭代次数编号")
@@ -71,7 +71,7 @@ class OptimizationRecord(BaseModel):
 
 class ExperimentRecord(BaseModel):
     """All the records of an experiment"""
-    
+
     model_config = {"arbitrary_types_allowed": True}
 
     aqc_func_name: str = Field(description="采集函数名称")

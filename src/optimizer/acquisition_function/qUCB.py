@@ -25,6 +25,6 @@ class QUCBAcquisitionFunction(BaseAcquisitionFunction):
         candidate, acq_value = optimize_acqf(
             acq_function=acquisition_function,
             bounds=bounds,
-            **{k: v for k, v in self.OPTIMIZE_KWARGS.items() if k != "bounds"}
+            **{k: v for k, v in self.OPTIMIZE_KWARGS.items() if k != "bounds"},
         )
         return candidate, acq_value

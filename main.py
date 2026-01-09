@@ -9,7 +9,7 @@ def main():
     """运行贝叶斯优化实验"""
     # 使用配置文件运行实验
     config_path = Path(__file__).parent / "config" / "example_config.yaml"
-    
+
     # 如果配置文件不存在，使用内联配置
     if not config_path.exists():
         config = {
@@ -59,17 +59,17 @@ def main():
         }
     else:
         config = config_path
-    
+
     print("=" * 60)
     print("开始运行贝叶斯优化实验")
     print("=" * 60)
-    
+
     # 创建实验实例
     experiment = Experiment(config)
-    
+
     # 运行实验
     result = experiment.run()
-    
+
     # 打印结果摘要
     print("\n" + "=" * 60)
     print("实验完成！结果摘要：")
